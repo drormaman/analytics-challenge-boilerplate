@@ -130,15 +130,98 @@ router.get("/week", (req: Request, res: Response) => {
 });
 
 router.get("/retention", (req: Request, res: Response) => {
-  const { dayZero } = req.query;
-  res.send("/retention");
+  const dayZero: number = new Date(
+    new Date(Number(req.query.dayZero)).toLocaleDateString()
+  ).getTime();
+  console.log("dayZero", dayZero);
+  const weekInMilisec: number = 604800000; // 7*24*60*60*1000
+  const today: number = new Date(new Date().toLocaleDateString()).getTime();
+  console.log("today", today);
+
+  const signUpEvents: Event[] = db
+    .get("events")
+    .filter((event: Event) => event.name === "signup" && event.date >= dayZero)
+    .orderBy("date")
+    .value();
+  // console.log("signUpEvents", signUpEvents);
+  const loginEvents: Event[] = db
+    .get("events")
+    .filter((event: Event) => event.name === "login" && event.date >= dayZero)
+    .orderBy("date")
+    .value();
+  // console.log("loginEvents", loginEvents);
+
+  const weekStarts: number[] = [];
+  for (let i: number = dayZero; i <= today; i += weekInMilisec) {
+    if (i > 1603314000000 && i <= 1603918800000) i += 60 * 60 * 1000;
+    weekStarts.push(i);
+  }
+
+  const registeredIdsEachWeek: Array<string[]> = []; // array of strings arrays representing each week new usersId
+  const loginsEachWeek: Array<string[]> = []; // array of strings arrays representing each week login users id
+
+  for (let i = 0; i < weekStarts.length - 1; i++) {
+    const weeklyRegisteredId: string[] = signUpEvents
+      .filter((event: Event) => event.date >= weekStarts[i] && event.date < weekStarts[i + 1])
+      .map((event: Event) => event.distinct_user_id);
+    registeredIdsEachWeek.push(weeklyRegisteredId);
+
+    if (i >= 1) {
+      const weeklyLoginEventsIds: string[] = loginEvents
+        .filter((event: Event) => event.date >= weekStarts[i] && event.date < weekStarts[i + 1])
+        .map((event: Event) => event.distinct_user_id)
+        .filter((id: string, i: number, arr: string[]) => arr.indexOf(id) === i);
+      loginsEachWeek.push(weeklyLoginEventsIds);
+    }
+  }
+  console.log("registeredIdsEachWeek", registeredIdsEachWeek);
+  console.log("loginsEachWeek", loginsEachWeek);
+  console.log("registered each week");
+  registeredIdsEachWeek.forEach((item, i) => console.log(item.length, i));
+  console.log("loginsEachWeek");
+  loginsEachWeek.forEach((item, i) => console.log(item.length, i));
+
+  const retentionArrays: Array<number[]> = registeredIdsEachWeek.map(
+    (registeredIds: string[], i: number) => {
+      console.log("i", i, "registered users", registeredIds.length);
+      const weeklyRetentionArray: number[] = [100];
+      for (let j = i; j < loginsEachWeek.length; j++) {
+        const numOfLogins: number = loginsEachWeek[j].filter((id: string) => {
+          return registeredIds.includes(id);
+        }).length;
+        console.log("j", j, "num of logins", numOfLogins);
+        weeklyRetentionArray.push((numOfLogins / registeredIds.length) * 100);
+      }
+      return weeklyRetentionArray;
+    }
+  );
+  console.log(retentionArrays);
+  const retentionInfoArray: weeklyRetentionObject[] = [];
+  for (let i = 0; i < weekStarts.length - 1; i++) {
+    const weekObj: weeklyRetentionObject = {
+      registrationWeek: i + 1,
+      newUsers: registeredIdsEachWeek[i].length,
+      start: new Date(weekStarts[i]).toLocaleDateString(),
+      end: new Date(weekStarts[i + 1] - 1000).toLocaleDateString(),
+      weeklyRetention: retentionArrays[i],
+    };
+    retentionInfoArray.push(weekObj);
+  }
+
+  res.send(retentionInfoArray);
 });
+
 router.get("/:eventId", (req: Request, res: Response) => {
-  res.send("/:eventId");
+  const events: Event[] = db.get("events").value();
+  const event: Event = events.find((event: Event) => event._id === req.params.eventId)!;
+
+  res.send(event);
 });
 
 router.post("/", (req: Request, res: Response) => {
-  res.send("/");
+  const newEvent: Event = req.body;
+  db.get("events").push(newEvent).write();
+  res.send("Added event");
 });
 
 router.get("/chart/os/:time", (req: Request, res: Response) => {
