@@ -37,7 +37,6 @@ interface Filter {
 
 router.get("/all", (req: Request, res: Response) => {
   const allEvents: Event[] = db.get("events").value();
-  console.log(allEvents.length);
   res.json(allEvents);
 });
 
