@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Interpreter } from "xstate";
 import { AuthMachineContext, AuthMachineEvents } from "../../machines/authMachine";
 import styled from "styled-components";
-import { Event, Location } from "../../models/event";
+import { Event, weeklyRetentionObject } from "../../models/event";
 
 export interface Props {
   authService: Interpreter<AuthMachineContext, any, AuthMachineEvents, any>;
@@ -25,13 +25,23 @@ const RetentionChart: React.FC = () => {
     <table>
       <thead>
         <tr>
-          <th>hello</th>
-          <th>hello</th>
+          <th>Week Dates</th>
+          {retentionData.map((weekRetention: weeklyRetentionObject, i: number) => (
+            <th>{`week ${i}`}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
-        <td>hhhh</td>
-        <td>fsaf</td>
+        {retentionData.map((weekRetention: weeklyRetentionObject, i: number) => {
+          return (
+            <tr key={weekRetention.start}>
+              <td>{weekRetention.start + " - " + weekRetention.end}</td>
+              {weekRetention.weeklyRetention.map((retention: number) => (
+                <td>{`${retention}%`}</td>
+              ))}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

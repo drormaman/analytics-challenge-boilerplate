@@ -262,8 +262,8 @@ router.get("/retention", (req: Request, res: Response) => {
     const weekObj: weeklyRetentionObject = {
       registrationWeek: i + 1,
       newUsers: registeredIdsEachWeek[i].length,
-      start: new Date(weekStarts[i]).toLocaleDateString(),
-      end: new Date(weekStarts[i + 1] - 1000).toLocaleDateString(),
+      start: formatDateToString(weekStarts[i]),
+      end: formatDateToString(weekStarts[i + 1] - 1000),
       weeklyRetention: retentionArrays[i],
     };
     retentionInfoArray.push(weekObj);
