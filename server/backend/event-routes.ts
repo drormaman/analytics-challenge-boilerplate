@@ -3,9 +3,6 @@
 import express from "express";
 import { Request, Response } from "express";
 
-import moment from "moment";
-moment().format();
-
 // some useful database functions in here:
 import {} from "./database";
 import { Event, weeklyRetentionObject } from "../../client/src/models/event";
@@ -25,6 +22,8 @@ const FileSync = require("lowdb/adapters/FileSync");
 const adapter = new FileSync("data/database.json");
 const db = low(adapter);
 
+function formatDate(date: number) {}
+
 // Routes
 
 interface Filter {
@@ -35,14 +34,14 @@ interface Filter {
   offset: number;
 }
 
-router.get("/all", (req: Request, res: Response) => {
+router.get("/all", (req: Request, res: Response): void => {
   const allEvents: Event[] = db.get("events").value();
   res.json(allEvents);
 });
 
 router.get("/all-filtered", (req: Request, res: Response) => {
   const params: Filter = {
-    sorting: req.query.sorting,
+    sorting: req.query.sorting || "+date",
     type: req.query.type,
     browser: req.query.browser,
     search: req.query.search,
@@ -74,6 +73,7 @@ router.get("/by-days/:offset", (req: Request, res: Response) => {
   }
   const countByDays: Array<sessionCountPerDay> = db
     .get("events")
+    .uniqBy("session_id")
     .filter((event: Event): boolean => {
       const eventDate: Date = new Date(event.date);
       return eventDate >= weekBefore && eventDate <= latestDay;
@@ -106,6 +106,7 @@ router.get("/by-hours/:offset", (req: Request, res: Response) => {
   }
   const countByHours: Array<sessionCountPerhour> = db
     .get("events")
+    .uniqBy("session_id")
     .filter((event: Event): boolean => {
       const eventDate: Date = new Date(event.date);
       return eventDate >= choosenDay && eventDate < endOfDay;
@@ -127,6 +128,16 @@ router.get("/today", (req: Request, res: Response) => {
 router.get("/week", (req: Request, res: Response) => {
   res.send("/week");
 });
+
+/*
+
+
+
+
+
+
+
+*/
 
 router.get("/retention", (req: Request, res: Response) => {
   const dayZero: number = new Date(
@@ -209,6 +220,15 @@ router.get("/retention", (req: Request, res: Response) => {
 
   res.send(retentionInfoArray);
 });
+/*
+
+
+
+
+
+
+
+*/
 
 router.get("/:eventId", (req: Request, res: Response) => {
   const events: Event[] = db.get("events").value();
