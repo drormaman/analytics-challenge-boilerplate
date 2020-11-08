@@ -4,18 +4,18 @@ export interface Event {
   name: eventName;
   url: string;
   distinct_user_id: string;
-  date: number|string;
+  date: number;
   os: os;
   browser: browser;
   geolocation: GeoLocation;
 }
 
 export interface weeklyRetentionObject {
-  registrationWeek:number;
-  newUsers:number;
-  weeklyRetention:number[];
-  start:string;
-  end:string
+  registrationWeek: number;
+  newUsers: number;
+  weeklyRetention: number[];
+  start: string;
+  end: string;
 }
 
 export type eventName = "login" | "signup" | "admin" | "/";

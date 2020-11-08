@@ -4,7 +4,7 @@ import express from "express";
 import { Request, Response } from "express";
 
 // some useful database functions in here:
-import {} from "./database";
+import { getAllEvents, addNewEvent } from "./database";
 import { Event, weeklyRetentionObject } from "../../client/src/models/event";
 import { ensureAuthenticated, validateMiddleware } from "./helpers";
 
@@ -16,17 +16,31 @@ import {
 } from "./validators";
 const router = express.Router();
 
-const low = require("lowdb");
-const FileSync = require("lowdb/adapters/FileSync");
+function formatDateToString(dateInMilisec: number): string {
+  const date: Date = new Date(dateInMilisec);
+  const dd: string = date.getDate().toString().padStart(2, "0");
+  const mm: string = (date.getMonth() + 1).toString().padStart(2, "0");
+  const yyyy: string = date.getFullYear().toString();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
-const adapter = new FileSync("data/database.json");
-const db = low(adapter);
+function getMilisecFromString(dateString: string): number {
+  const newDateString: string = `${dateString.slice(3, 5)}/${dateString.slice(
+    0,
+    2
+  )}/${dateString.slice(6)}`;
+  const date: Date = new Date(newDateString);
+  return date.getTime();
+}
 
-function formatDate(date: number) {}
+function milisecAtMidnight(dateInMilisec: number): number {
+  const date: Date = new Date(dateInMilisec);
+  return date.setHours(0, 0, 0, 0);
+}
 
 // Routes
 
-interface Filter {
+export interface Filter {
   sorting: string;
   type: string;
   browser: string;
@@ -34,141 +48,184 @@ interface Filter {
   offset: number;
 }
 
-router.get("/all", (req: Request, res: Response): void => {
-  const allEvents: Event[] = db.get("events").value();
+router.get("/all", (req: Request, res: Response) => {
+  const allEvents: Event[] = getAllEvents();
   res.json(allEvents);
 });
 
 router.get("/all-filtered", (req: Request, res: Response) => {
-  const params: Filter = {
+  const filterParams: Filter = {
     sorting: req.query.sorting || "+date",
     type: req.query.type,
     browser: req.query.browser,
     search: req.query.search,
     offset: req.query.offset,
   };
-  console.log(params);
-  const filteredEvents: Event[] = db
-    .get("events")
-    .orderBy("date", params.sorting[0] === "+" ? "desc" : "asc")
-    .filter(params.type && { name: params.type })
-    .filter(params.browser && { browser: params.browser })
-    .slice(0, params.offset)
-    .value();
-  res.json({ events: filteredEvents, more: params.offset ? true : false });
+  console.log(filterParams);
+  // const filteredEvents: Event[] = db
+  //   .get("events")
+  //   .orderBy("date", params.sorting[0] === "+" ? "desc" : "asc")
+  //   .filter(params.type && { name: params.type })
+  //   .filter(params.browser && { browser: params.browser })
+  //   .slice(0, params.offset)
+  //   .value();
+
+  let filteredEvents: Event[] = getAllEvents();
+
+  // if(filterParams.sorting === '-date') {
+
+  // }else
+  if (filterParams.search) {
+    const regex: RegExp = new RegExp(filterParams.search, "i");
+    filteredEvents = filteredEvents.filter((event: Event) =>
+      Object.values(event).some((value) => regex.test(value.toString()))
+    );
+  }
+  if (filterParams.type) {
+    filteredEvents = filteredEvents.filter((event: Event) => event.name === filterParams.type);
+  }
+  if (filterParams.browser) {
+    filteredEvents = filteredEvents.filter(
+      (event: Event) => event.browser === filterParams.browser
+    );
+  }
+  if (filterParams.sorting === "+date") {
+    filteredEvents = filteredEvents.sort(
+      (event1: Event, event2: Event): number => event1.date - event2.date
+    );
+  } else {
+    filteredEvents = filteredEvents.sort(
+      (event1: Event, event2: Event): number => event2.date - event1.date
+    );
+  }
+  if (filterParams.offset) {
+    filteredEvents = filteredEvents.slice(0, filterParams.offset);
+  }
+
+  // if (filterParams.browser) {
+  //   console.log(filterParams.browser);
+  //   console.log(filteredEvents);
+  // }
+  res.json({ events: filteredEvents, more: filterParams.offset ? true : false });
 });
 
 router.get("/by-days/:offset", (req: Request, res: Response) => {
-  const offset: number = Number(req.params.offset);
-  const now: Date = new Date();
-  console.log(now);
-  const latestDay: Date = new Date(now.getTime() - offset * 24 * 60 * 60 * 1000);
-  console.log(latestDay);
-  const weekBefore: Date = new Date(latestDay.getTime() - 6 * 24 * 60 * 60 * 1000);
-  console.log(weekBefore);
+  const offset: number = +req.params.offset;
+  const today: number = new Date().getTime();
+  const latestDay: number = new Date(today - offset * 24 * 60 * 60 * 1000).setHours(
+    23,
+    59,
+    59,
+    999
+  );
+  const weekBefore: number = new Date(latestDay - 6 * 24 * 60 * 60 * 1000).setHours(0, 0, 0, 0);
 
   interface sessionCountPerDay {
     date: string;
     count: number;
   }
-  const countByDays: Array<sessionCountPerDay> = db
-    .get("events")
-    .uniqBy("session_id")
-    .filter((event: Event): boolean => {
-      const eventDate: Date = new Date(event.date);
-      return eventDate >= weekBefore && eventDate <= latestDay;
-    })
-    .orderBy("date")
-    .map(
-      (event: Event): Event => {
-        const dateArray: string[] = new Date(event.date).toLocaleDateString().split("/");
-        const formattedDate: string = `${dateArray[1]}/${dateArray[0]}/${dateArray[2]}`;
-        return { ...event, date: formattedDate };
-      }
-    )
-    .groupBy("date")
-    .map((events: Event[], date: string) => ({ date, count: events.length }))
-    .value();
-  // const allEvents: Event[] = db.get("events").value();
+  const allEvents: Event[] = getAllEvents();
+  const relevantEvents: Event[] = allEvents.filter((event: Event, i: number, arr: Event[]) => {
+    if (
+      event.date >= weekBefore &&
+      event.date < latestDay
+      // arr.findIndex((e: Event) => e.session_id === event.session_id) === i
+    ) {
+      return true;
+    }
+  });
+  let datesCountArr: sessionCountPerDay[] = [];
+  relevantEvents.forEach((event: Event) => {
+    const dateString: string = formatDateToString(event.date);
+    const dayIndex: number = datesCountArr.findIndex(
+      (dayCount: sessionCountPerDay) => dayCount.date === dateString
+    );
+    if (dayIndex !== -1) {
+      datesCountArr[dayIndex].count += 1;
+    } else {
+      datesCountArr.push({ date: dateString, count: 1 });
+    }
+  });
+  console.log(getMilisecFromString(datesCountArr[0].date));
+  datesCountArr = datesCountArr.sort(
+    (day1: sessionCountPerDay, day2: sessionCountPerDay) =>
+      getMilisecFromString(day1.date) - getMilisecFromString(day2.date)
+  );
 
-  res.send(countByDays);
+  res.json(datesCountArr);
 });
 
 router.get("/by-hours/:offset", (req: Request, res: Response) => {
-  const offset: number = Number(req.params.offset);
-  const today: Date = new Date(new Date().toLocaleDateString());
-  const choosenDay: Date = new Date(today.getTime() - offset * 24 * 60 * 60 * 1000);
-  const endOfDay: Date = new Date(choosenDay.getTime() + 24 * 60 * 60 * 1000);
+  const offset: number = +req.params.offset;
+  const today: number = new Date().setHours(0, 0, 0, 0);
+  const choosenDay: number = new Date(today - offset * 24 * 60 * 60 * 1000).getTime();
+  const endOfDay: number = new Date(choosenDay).setHours(23, 59, 59, 999);
 
   interface sessionCountPerhour {
     hour: string;
     count: number;
   }
-  const countByHours: Array<sessionCountPerhour> = db
-    .get("events")
-    .uniqBy("session_id")
-    .filter((event: Event): boolean => {
-      const eventDate: Date = new Date(event.date);
-      return eventDate >= choosenDay && eventDate < endOfDay;
-    })
-    .orderBy("date")
-    .map((event: Event): Event => ({ ...event, date: `${new Date(event.date).getHours()}:00` }))
-    .groupBy("date")
-    .map((events: Event[], date: string) => ({ date, count: events.length }))
-    .value();
-  // const allEvents: Event[] = db.get("events").value();
+  const allEvents: Event[] = getAllEvents();
+  const relevantEvents: Event[] = allEvents.filter((event: Event, i: number, arr: Event[]) => {
+    if (
+      event.date >= choosenDay &&
+      event.date <= endOfDay
+      // arr.findIndex((e: Event) => e.session_id === event.session_id) === i
+    ) {
+      return true;
+    }
+  });
+  let HourCountArr: sessionCountPerhour[] = [];
+  for (let i = 0; i < 24; i++) {
+    HourCountArr.push({ hour: `${i.toString().padStart(2, "0")}:00`, count: 0 });
+  }
+  relevantEvents.forEach((event: Event) => {
+    const hourIndex: number = new Date(event.date).getHours();
+    HourCountArr[hourIndex].count += 1;
+  });
+  HourCountArr = HourCountArr.sort(
+    (hour1: sessionCountPerhour, hour2: sessionCountPerhour) =>
+      parseInt(hour1.hour) - parseInt(hour2.hour)
+  );
 
-  res.send(countByHours);
+  res.send(HourCountArr);
 });
 
-router.get("/today", (req: Request, res: Response) => {
-  res.send("/today");
-});
+// router.get("/today", (req: Request, res: Response) => {
+//   res.send("/today");
+// });
 
-router.get("/week", (req: Request, res: Response) => {
-  res.send("/week");
-});
-
-/*
-
-
-
-
-
-
-
-*/
+// router.get("/week", (req: Request, res: Response) => {
+//   res.send("/week");
+// });
 
 router.get("/retention", (req: Request, res: Response) => {
-  const dayZero: number = new Date(
-    new Date(Number(req.query.dayZero)).toLocaleDateString()
-  ).getTime();
-  console.log("dayZero", dayZero);
+  const dayZero: number = new Date(+req.query.dayZero).setHours(0, 0, 0, 0);
   const weekInMilisec: number = 604800000; // 7*24*60*60*1000
-  const today: number = new Date(new Date().toLocaleDateString()).getTime();
-  console.log("today", today);
+  const now: number = new Date().getTime();
 
-  const signUpEvents: Event[] = db
-    .get("events")
-    .filter((event: Event) => event.name === "signup" && event.date >= dayZero)
-    .orderBy("date")
-    .value();
-  // console.log("signUpEvents", signUpEvents);
-  const loginEvents: Event[] = db
-    .get("events")
-    .filter((event: Event) => event.name === "login" && event.date >= dayZero)
-    .orderBy("date")
-    .value();
-  // console.log("loginEvents", loginEvents);
+  const allEvents: Event[] = getAllEvents();
+
+  let signUpEvents: Event[] = allEvents.filter(
+    (event: Event) => event.name === "signup" && event.date >= dayZero
+  );
+  signUpEvents = signUpEvents.sort((event1: Event, event2: Event) => event1.date - event2.date);
+
+  let loginEvents: Event[] = allEvents.filter(
+    (event: Event) => event.name === "login" && event.date >= dayZero
+  );
+  loginEvents = loginEvents.sort((event1: Event, event2: Event) => event1.date - event2.date);
 
   const weekStarts: number[] = [];
-  for (let i: number = dayZero; i <= today; i += weekInMilisec) {
+  for (let i: number = dayZero; i < now; i += weekInMilisec) {
     if (i > 1603314000000 && i <= 1603918800000) i += 60 * 60 * 1000;
     weekStarts.push(i);
   }
+  weekStarts.push(now);
+  console.log(weekStarts);
 
-  const registeredIdsEachWeek: Array<string[]> = []; // array of strings arrays representing each week new usersId
-  const loginsEachWeek: Array<string[]> = []; // array of strings arrays representing each week login users id
+  const registeredIdsEachWeek: string[][] = []; // array of strings arrays representing each week new usersId
+  const loginsEachWeek: string[][] = []; // array of strings arrays representing each week login users id
 
   for (let i = 0; i < weekStarts.length - 1; i++) {
     const weeklyRegisteredId: string[] = signUpEvents
@@ -184,28 +241,22 @@ router.get("/retention", (req: Request, res: Response) => {
       loginsEachWeek.push(weeklyLoginEventsIds);
     }
   }
-  console.log("registeredIdsEachWeek", registeredIdsEachWeek);
-  console.log("loginsEachWeek", loginsEachWeek);
-  console.log("registered each week");
-  registeredIdsEachWeek.forEach((item, i) => console.log(item.length, i));
-  console.log("loginsEachWeek");
-  loginsEachWeek.forEach((item, i) => console.log(item.length, i));
+  console.log(registeredIdsEachWeek);
+  console.log(loginsEachWeek);
 
-  const retentionArrays: Array<number[]> = registeredIdsEachWeek.map(
+  const retentionArrays: number[][] = registeredIdsEachWeek.map(
     (registeredIds: string[], i: number) => {
-      console.log("i", i, "registered users", registeredIds.length);
       const weeklyRetentionArray: number[] = [100];
       for (let j = i; j < loginsEachWeek.length; j++) {
         const numOfLogins: number = loginsEachWeek[j].filter((id: string) => {
           return registeredIds.includes(id);
         }).length;
-        console.log("j", j, "num of logins", numOfLogins);
-        weeklyRetentionArray.push((numOfLogins / registeredIds.length) * 100);
+        console.log(i, j, numOfLogins, registeredIds.length);
+        weeklyRetentionArray.push(Math.round((numOfLogins / registeredIds.length) * 100));
       }
       return weeklyRetentionArray;
     }
   );
-  console.log(retentionArrays);
   const retentionInfoArray: weeklyRetentionObject[] = [];
   for (let i = 0; i < weekStarts.length - 1; i++) {
     const weekObj: weeklyRetentionObject = {
@@ -220,43 +271,33 @@ router.get("/retention", (req: Request, res: Response) => {
 
   res.send(retentionInfoArray);
 });
-/*
-
-
-
-
-
-
-
-*/
 
 router.get("/:eventId", (req: Request, res: Response) => {
-  const events: Event[] = db.get("events").value();
+  const events: Event[] = getAllEvents();
   const event: Event = events.find((event: Event) => event._id === req.params.eventId)!;
-
   res.send(event);
 });
 
 router.post("/", (req: Request, res: Response) => {
   const newEvent: Event = req.body;
-  db.get("events").push(newEvent).write();
-  res.send("Added event");
+  addNewEvent(newEvent);
+  res.send("Event logged");
 });
 
-router.get("/chart/os/:time", (req: Request, res: Response) => {
-  res.send("/chart/os/:time");
-});
+// router.get("/chart/os/:time", (req: Request, res: Response) => {
+//   res.send("/chart/os/:time");
+// });
 
-router.get("/chart/pageview/:time", (req: Request, res: Response) => {
-  res.send("/chart/pageview/:time");
-});
+// router.get("/chart/pageview/:time", (req: Request, res: Response) => {
+//   res.send("/chart/pageview/:time");
+// });
 
-router.get("/chart/timeonurl/:time", (req: Request, res: Response) => {
-  res.send("/chart/timeonurl/:time");
-});
+// router.get("/chart/timeonurl/:time", (req: Request, res: Response) => {
+//   res.send("/chart/timeonurl/:time");
+// });
 
-router.get("/chart/geolocation/:time", (req: Request, res: Response) => {
-  res.send("/chart/geolocation/:time");
-});
+// router.get("/chart/geolocation/:time", (req: Request, res: Response) => {
+//   res.send("/chart/geolocation/:time");
+// });
 
 export default router;

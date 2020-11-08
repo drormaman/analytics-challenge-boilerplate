@@ -49,7 +49,7 @@ import {
   NotificationResponseItem,
   TransactionQueryPayload,
   DefaultPrivacyLevel,
-  Event
+  Event,
 } from "../../client/src/models";
 import Fuse from "fuse.js";
 import {
@@ -69,7 +69,7 @@ import {
   isCommentNotification,
 } from "../../client/src/utils/transactionUtils";
 import { DbSchema } from "../../client/src/models/db-schema";
-
+import { Filter } from "http-proxy-middleware";
 
 export type TDatabase = {
   users: User[];
@@ -107,6 +107,18 @@ export const seedDatabase = () => {
   db.setState(testSeed).write();
   return;
 };
+
+/*
+
+
+
+
+
+*/
+// Events
+export const getAllEvents = () => db.get(EVENT_TABLE).value();
+
+export const addNewEvent = (event: Event) => db.get(EVENT_TABLE).push(event).write();
 
 export const getAllUsers = () => db.get(USER_TABLE).value();
 
@@ -862,6 +874,5 @@ export const getTransactionsBy = (key: string, value: string) =>
 
 /* istanbul ignore next */
 export const getTransactionsByUserId = (userId: string) => getTransactionsBy("receiverId", userId);
-
 
 export default db;
